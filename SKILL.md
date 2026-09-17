@@ -6,11 +6,12 @@ description: >
   /delegate, or when the user describes a job they do repeatedly and wants it
   captured — phrases like "make this repeatable", "write a runbook/SOP/
   checklist for X", "I do this every week/month", "turn what we just did into
-  a playbook". Interviews the user, writes the playbook, runs the job once,
-  saves a reusable toolbox, and adds an evidence-based Definition of Done —
-  all without stopping for approval between steps, except two named
-  exceptions. NOT for authoring general-purpose Claude Code skills, prompts,
-  or agent tooling — use skill-creator for that.
+  a playbook". Interviews the user, writes the playbook, then plans and works
+  toward the job's end state in recursively decomposed steps — parallel where
+  independent — saves a reusable toolbox, and adds an evidence-based
+  Definition of Done, all without stopping for approval between steps, except
+  two named exceptions. NOT for authoring general-purpose Claude Code skills,
+  prompts, or agent tooling — use skill-creator for that.
 ---
 
 # /delegate — turn a repeated job into a runnable, self-verifying playbook
@@ -25,24 +26,25 @@ Before anything else, check whether a matching `[job-name]/` folder already exis
 - `SKILL.md` exists but is missing a required section → step 2.
 - No `files/INDEX.md` → step 4.
 - Definition of Done has fewer than 5 checks → step 5.
+- A Step in SKILL.md is marked as expanded-in-progress from an earlier interrupted run (see "Running: plan, recurse, parallelize") → finish decomposing and executing that step before doing anything else.
 - `runs.md` shows a check (or, for a batch job, any single item's row for a check) with a first-pass failure and no final result yet recorded → finish that check's (or that item's) retry cycle (step 5) before doing anything else — don't treat the run as complete and don't start a new one, even if the rest of the batch's rows are done.
-- Everything present and no check mid-retry → run the job under the existing Definition of Done; check `runs.md` for declined delegation proposals so they aren't re-proposed too soon.
+- Everything present and nothing mid-retry or mid-expansion → run the job under the existing Definition of Done; check `runs.md` for declined delegation proposals so they aren't re-proposed too soon.
 
 ## What this skill does
 
 Runs the full five-step pipeline end to end:
 
-1. **Interview** — ask at least 8 questions, one at a time, waiting for each answer, before writing any file. Cover:
+1. **Interview** — ask one question at a time, waiting for each answer, before writing any file. There's no fixed question count: ask as many as it takes to genuinely understand the job. If an answer is vague, generic, or dodges the actual mechanics, don't move on — ask a sharper, more specific follow-up on that same point first. Cover:
    - what triggers the job, and how often
    - the inputs, and exactly where each one lives — for anything secret (password, API key, signed URL, token) record only *where to find it* (env var name, keychain item, "ask the user"), never the value
-   - whether the job is one thing end-to-end, or a batch of similar independent items (per-client, per-region, per-file) — batches can run in parallel, see "Running in parallel" below
+   - whether the job is one thing end-to-end, or something that breaks into independent parts (a batch of similar items, or genuinely separate sub-tasks) — see "Running: plan, recurse, parallelize" below
    - the steps in the order the user really does them, and which are irreversible (sends, posts, publishes, deletes, overwrites)
    - every decision the user makes, and the rule behind it
    - what the user checks before calling it finished, and what a bad version looks like — both feed the Definition of Done in step 5, don't let them go to waste
    - edge cases that have gone wrong before
    - the tone or standard the finished thing has to hit
 
-   Batch closely related questions into one turn where natural. End with one closing question — "Anything else before I write it?" — a "no"/"done" ends the interview. If the user says "do as you see fit" / "zrób jak uważasz" at any point, stop asking immediately, list each uncovered topic with the assumption you'll use, and proceed. Do not write any files before the interview ends one of these two ways.
+   Batch closely related questions into one turn where natural, but never merge two topics into one question just to cut the count — a half-answered merged question is worse than two clean ones. Cap follow-ups at 2 per topic: if the answer is still unclear after that, stop pushing, write it into Decisions or Edge cases as a flagged assumption (`[assumed - confirm]`), and move to the next topic. End with one closing question — "Anything else before I write it?" — a "no"/"done" ends the interview. If the user says "do as you see fit" / "zrób jak uważasz" at any point, stop asking immediately, list each uncovered topic with the assumption you'll use, and proceed. Do not write any files before the interview ends one of these two ways.
 
 2. **Write the playbook** — create a folder and write `SKILL.md` from this skeleton:
 
@@ -54,7 +56,7 @@ Runs the full five-step pipeline end to end:
    Purpose (one line)
    When to use this
    Inputs
-   Steps (numbered, plain language, no jargon)
+   Steps (numbered, plain language, no jargon — goals, not literal scripts)
    Decisions (if X then Y)
    Definition of done — placeholder: "filled in step 5 after the first run"
    Edge cases
@@ -62,27 +64,42 @@ Runs the full five-step pipeline end to end:
 
    Default location: `<project>/.claude/skills/<slug>/` if the job is tied to one project, otherwise `~/.claude/skills/<slug>/`, so the playbook is invocable as `/<slug>`. Only ask if neither default obviously fits — this is one of the two standing-rule exceptions below.
 
-3. **Run it once** — execute the job using the fresh SKILL.md, show the result. If a step is irreversible (flagged in step 1), stop right before that action, show exactly what would happen, and get a one-word go before it fires — everything up to that point runs straight through. If the job is a batch of independent items, use parallel agents (see "Running in parallel"). Write outputs under `[job-name]/runs/<date>/`; for anything destructive, work on a copy rather than the only copy of real input data.
+3. **Run it once** — treat the Steps in the fresh SKILL.md as a plan toward the job's end state, not a fixed script to replay literally. Work through them in order; for any step you can't execute directly in one action, decompose and parallelize it per "Running: plan, recurse, parallelize" before executing. Show the result. If a step is irreversible (flagged in step 1), stop right before that action, show exactly what would happen, and get a one-word go before it fires — everything up to that point runs straight through. Write outputs under `[job-name]/runs/<date>/`; for anything destructive, work on a copy rather than the only copy of real input data.
 
 4. **Toolbox** — save reusable artifacts by default whenever the run produced any file, template, or reusable structure; skip only for genuinely one-shot jobs (ask only if that's unclear — the other standing-rule exception). If saving: put artifacts in `[job-name]/files/` with descriptive names (no dates/versions in the filename), turn specifics into `[placeholders]`, and keep one *scrubbed or synthetic* filled-in example — real secrets, credentials, or client PII never become the reference example unless the user explicitly approves it, logged in INDEX.md. Update SKILL.md so each step that needs a file points at it by name, and log it in `files/INDEX.md` (filename, purpose, date, last-reused date). Never save one-off outputs, secrets/API keys, or unapproved drafts — this applies to every file the skill writes, not just `files/`. Re-run the job (same irreversible-action gate as step 3) and report, per saved file, the exact path read and how it was used — not just "reused" or "rebuilt".
 
 5. **Definition of Done** — replace the step-2 placeholder with 5–10 checks specific to this job. At least half must come directly from what the user said they check before calling it finished and what a bad version looks like (step 1) — don't invent checks that only confirm the output looks like what was already produced. Every check must be verifiable with evidence outside the assistant's own opinion (a source, a link that loads, a screenshot, a test run, a count, a value checked against a reference file). No vague quality words ("clear," "professional," "high quality"). Show the finished check list once for a one-line confirmation.
 
-   From then on, before showing any output: run every check and record the **first-pass** result (before any fixing) to `[job-name]/runs.md` — one row per run per check: date, run number, first-pass result, final result, evidence, delegation split in force, orchestration mode (serial / pipeline / parallel). For a batch job (see "Running in parallel"), add an **item** column and log one row per run per check *per item* instead of one row per check — a check that fails on some items and passes on others must stay visible as a partial failure, not collapse into a single verdict for the run. Fix what fails, re-run each failed check at most twice, then report one line per check (or per item, for batches) as `first pass: fail (reason) → fixed → pass`, or `unverified` if still unconfirmed — never report a check as passing on "should be fine." If more than two checks fail on the first pass, stop and explain which part of the process caused it rather than just patching the output.
+   From then on, before showing any output: run every check and record the **first-pass** result (before any fixing) to `[job-name]/runs.md` — one row per run per check: date, run number, first-pass result, final result, evidence, delegation split in force, orchestration mode (serial / pipeline / parallel). For a batch job (see "Running: plan, recurse, parallelize"), add an **item** column and log one row per run per check *per item* instead of one row per check — a check that fails on some items and passes on others must stay visible as a partial failure, not collapse into a single verdict for the run. Fix what fails, re-run each failed check at most twice, then report one line per check (or per item, for batches) as `first pass: fail (reason) → fixed → pass`, or `unverified` if still unconfirmed — never report a check as passing on "should be fine." If more than two checks fail on the first pass, stop and explain which part of the process caused it rather than just patching the output.
 
 ## The standing rule: run straight through
 
 Do not pause between steps 2–5 asking "should I continue?" — proceed automatically once the interview is done. There are exactly two exceptions to *that* rule, both named above: confirming folder placement in step 2 when neither default fits, and confirming the toolbox save in step 4 when reusability is unclear. Anything else that's genuinely ambiguous gets folded into one clarifying question, asked once — not a fresh pause per step.
 
-This is separate from the irreversible-action gate (step 3, and its batched form in "Running in parallel"): that gate isn't a pipeline-continuation pause, it's a standing safety check that applies every time a send/publish/delete/overwrite is about to fire, run or not. It never counts against or adds to the "two exceptions" above.
+This is separate from the irreversible-action gate (step 3, and its batched form in "Running: plan, recurse, parallelize"): that gate isn't a pipeline-continuation pause, it's a standing safety check that applies every time a send/publish/delete/overwrite is about to fire, run or not. It never counts against or adds to the "two exceptions" above.
 
-## Running in parallel
+## Running: plan, recurse, parallelize
 
-If the interview establishes the job processes a batch of similar, independent items (one email per client, one report per region, one file per record), run it with parallel agents once the batch has **4 or more items**; below that, serial is simpler and the overhead isn't worth it. Use the Workflow tool: `pipeline(items, item => agent(...))` for independent per-item work, or `parallel(items.map(...))` only when a later step genuinely needs all items' results together (e.g. deduping across the batch before a shared summary). Record which mode ran (serial / pipeline / parallel) in `runs.md`'s orchestration-mode column, so a later change in failure patterns can be traced to a mode switch and not mistaken for a content problem.
+A Step in SKILL.md is a goal, not a literal script line. Before executing one, ask: can this be done directly, in one action, right now? If yes, do it. If it actually hides several sub-decisions or sub-tasks — the kind of thing that would need its own mini-interview if you stopped to ask — mark it as expanded-in-progress, break it into a numbered sub-plan, apply the same question to every sub-step, and recurse until each leaf is a single concrete action. No fixed depth limit; stop recursing exactly when a step no longer hides anything.
 
-If any item hits an irreversible step (flagged in step 1), collect every pending irreversible action across the whole batch into one summary and get a single go/no-go before any of them fire — never one confirmation prompt per item.
+The expanded-in-progress mark is literal text appended to that Step's line in SKILL.md's Steps section — `(expanding...)` — added the moment you start decomposing it and removed the moment the sub-plan is written back (below) or, if you stop mid-decomposition, left in place for Step 0 to find on resume. A Step showing this suffix has no other required syntax; the sub-plan itself is just nested numbered/lettered lines under it once written.
 
-Write this into the generated SKILL.md's Steps so re-runs use it too. Keep it proportionate — a batch under 4 items doesn't need this.
+For Definition-of-Done and `runs.md` purposes (step 5), a decomposed Step is done only when every one of its sub-steps succeeds; if any sub-step fails its first pass, record the failure on that *parent* Step's row in `runs.md`, naming the specific failing sub-step in the evidence field — don't let a sub-step failure get absorbed into a passing parent-Step verdict.
+
+If a discovered sub-plan is stable — structure that will recur on the next run, not one-off detail from this run's specific input — write it back into SKILL.md's Steps as nested sub-steps and remove the expanded-in-progress mark, so future runs start from the plan already found instead of re-deriving it. Do this after step 5's checks pass for the run (a sub-plan is only worth persisting once verified to work); on a job's very first run, this happens in the same pass as step 5 replacing the Definition-of-Done placeholder — the two edit different sections of SKILL.md (Steps vs. Definition of done) and don't conflict. Note in the run report the first time a step gets expanded this way.
+
+Parallelize whenever branches don't depend on each other's output — use the Workflow tool: `pipeline(items, item => agent(...))` when each item's work is independent end to end, or `parallel(...)` only when a later step genuinely needs every branch's result together (e.g. deduping before a shared summary). Two thresholds, because the economics differ:
+
+- **A batch of similar items** (one email per client, one report per region, one file per record): parallelize at **4 or more items**; below that, serial is simpler and not worth the overhead.
+- **Independent branches found while decomposing a step** (distinct sub-tasks, not repeats of the same shape): parallelize at **2 or more**, since each branch is usually substantial enough that the overlap already pays for itself.
+
+If a decomposition could reasonably be read either way (same-shaped work that's also substantial), default to treating it as a batch and use the 4+ threshold — only use the lower 2+ threshold when the branches are genuinely different in kind, not just individually large. Classify it the same way on every run of the same job; don't let the classification drift.
+
+Record which mode ran (serial / pipeline / parallel) in `runs.md`'s orchestration-mode column, so a later change in failure patterns can be traced to a mode switch and not mistaken for a content problem.
+
+If any branch — at any depth of recursion — hits an irreversible step (flagged in step 1), collect every pending irreversible action across the *whole* plan into one summary and get a single go/no-go before any of them fire — never one confirmation prompt per branch or per recursion level.
+
+Keep it proportionate: a step that's already a single action doesn't need a sub-plan, and a decomposition where one branch is trivial doesn't need parallelizing just because it technically could be.
 
 ## The diligence-reshapes-delegation loop
 
